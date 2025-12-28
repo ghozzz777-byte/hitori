@@ -345,4 +345,62 @@ fs.watchFile(file, () => {
 	delete require.cache[file]
 	require(file)
 });
+const { default: makeWASocket, useSingleFileAuthState } = require('@adiwajshing/baileys')
+const { state, saveState } = useSingleFileAuthState('./session.json')
+
+const sock = makeWASocket({
+    auth: state,
+    printQRInTerminal: true
+})
+
+sock.ev.on('creds.update', saveState)
+
+// ===== STATUS =====
+let antilinkEnabled = true
+
+// ===== Hidetag Function =====
+async function hidetag(groupId, message) {
+    const metadata = await sock.groupMetadata(groupId)
+    const mentions = metadata.participants.map(p => p.id)
+    await sock.sendMessage(groupId, { text: message, mentions })
+}
+
+// ===== Messages Listener =====
+sock.ev.on('messages.upsert', async ({ messages }) => {
+    const msg = messages[0]
+    if (!msg.message || msg.key.fromMe) return
+
+    const text = msg.message.conversation || msg.message.extendedTextMessage?.text
+    const jid = msg.key.remoteJid
+
+    if (!text) return
+
+    // ===== Commands =====
+    if (text.startsWith('.h ')) {
+        const message = text.replace('.h ', '')
+        hidetag(jid, message)
+    }
+
+    if (text.toLowerCase() === '.antilink on') {
+        antilinkEnabled = true
+        sock.sendMessage(jid, { text: 'Antilink diaktifkan ✅' })
+    }
+
+    if (text.toLowerCase() === '.antilink off') {
+        antilinkEnabled = false
+        sock.sendMessage(jid, { text: 'Antilink dimatikan ❌' })
+    }
+
+    // ===== Antilink =====
+    if (antilinkEnabled && /https?:\/\/\S+/gi.test(text)) {
+        await sock.sendMessage(jid, { text: 'Link tidak diperbolehkan!' })
+        try {
+            await sock.sendMessage(jid, {
+                delete: { remoteJid: jid, fromMe: false, id: msg.key.id }
+            })
+        } catch (err) {
+            console.log('Gagal hapus link:', err)
+        }
+    }
+})
 
